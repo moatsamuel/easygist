@@ -51,7 +51,7 @@ jobs:
         cp -r . deployment/
         
         # Remove .env from deployment (use server's .env instead)
-        rm deployment/.env
+        rm .env
 
     - name: Deploy to cPanel Subdomain via FTP
       uses: SamKirkland/FTP-Deploy-Action@v4.3.4
