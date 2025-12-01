@@ -1,0 +1,96 @@
+name: Deploy EasyGist to cPanel Subdomain
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.2'
+        extensions: mbstring, xml, ctype, iconv, intl, pdo, bcmath, curl, gd, zip
+        coverage: none
+
+    - name: Copy environment file
+      run: |
+        cp .env.example .env
+        # If you have subdomain-specific environment file
+        # cp .env.subdomain .env
+
+    - name: Install dependencies
+      run: |
+        composer install --no-dev --no-progress --no-interaction --optimize-autoloader
+        npm ci --silent
+        npm run build
+
+    - name: Generate application key
+      run: php artisan key:generate
+
+    - name: Create deployment package
+      run: |
+        # Remove files not needed in production
+        rm -rf node_modules/
+        rm -rf tests/
+        rm -rf .github/
+        # Remove development files
+        find . -name "*.md" -delete
+        find . -name "*.txt" -delete
+        
+        # Create deployment directory structure
+        mkdir -p deployment
+        # Copy all files to deployment directory
+        cp -r . deployment/
+        
+        # Remove .env from deployment (use server's .env instead)
+        rm deployment/.env
+
+    - name: Deploy to cPanel Subdomain via FTP
+      uses: SamKirkland/FTP-Deploy-Action@v4.3.4
+      with:
+        server: ${{ secrets.FTP_SERVER }}
+        username: ${{ secrets.FTP_USERNAME }}
+        password: ${{ secrets.FTP_PASSWORD }}
+        # local-dir: ./deployment/
+        server-dir: /home/seshtmmb/sesha.website/easygist  # Change this to your subdomain folder
+        # Exclude development files
+        exclude: |
+          **/.git*
+          **/.gitignore
+          **/.github/
+          **/node_modules/
+          **/tests/
+          **/storage/logs/*
+          **/storage/framework/cache/*
+          **/storage/framework/sessions/*
+          **/storage/framework/views/*
+        # Additional FTP options
+        dangerous-clean-slate: false
+      env:
+        FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+
+    - name: Run remote commands (optional)
+      # This step requires SSH access to your cPanel
+      if: false # Set to true if you have SSH access
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.SSH_HOST }}
+        username: ${{ secrets.SSH_USERNAME }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        script: |
+          cd /home/username/public_html/subdomain-folder  # Change to your subdomain folder
+          php artisan storage:link
+          php artisan config:cache
+          php artisan route:cache
+          php artisan view:cache
+
+    - name: Cleanup
+      run: rm -rf deployment
